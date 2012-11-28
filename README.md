@@ -17,8 +17,11 @@ That wasn't hard was it.
 So the progression of using your hardware with perl goes something like this
 
 minicom <-> bus_pirate <-> some hardware
+
 perl app <-> Bus::Pirate <-> some hardware
+
 perl app <-> GPIO <-> Bus::Pirate test hardware
+
 perl app <-> GPIO <-> some hardware
 
 Example Scenario: Suppose you have a intergrated circuit (IC) component that gives you the temperature and pressure via an I2C bus.
