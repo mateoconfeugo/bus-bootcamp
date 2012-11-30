@@ -1,6 +1,14 @@
 package Bus::BC::I2C;
 use Moose::Role;
 
+sub read {
+    my ($self) = @_;
+}
+
+sub write {
+    my ($self) = @_;
+}
+
 sub send_start_bit {
     my ($self) = @_;
     $self->serial_port->write("\x02");
@@ -39,17 +47,19 @@ sub send_nack {
 sub start_sniffer {
     my ($self) = @_;
     $self->serial_port->write("\x0F");
-    select(undef,undef,undef, .02); #sleep for fraction of second for data to arrive #sleep(1);
+    pause({for=>.02});
 }
 
-sub control_register {
+sub write_register {
   my ($self, $register, $value) = @_;
+ # write 0x2E into register 0xf4 and wait for 4.5milliseconds
+  pause({for=>4.5, units=>'ms'});
   #
   # [0xee 0xac [0xef r]
   # [$write_address, $read_address, 
 }
 
-sub get_register {
+sub read_register {
   my ($self, $register) = @_;
 }
 

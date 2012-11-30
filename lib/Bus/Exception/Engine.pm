@@ -2,19 +2,25 @@ package Bus::Exception::Engine;
 use Moose::Role;
 use Carp;
 use Bus::Exception;
+use Try::Tiny;
 
-has dispatch_table => (
-		       is=>'rw',
-		       isa=>'HashRef[CodeRef]',
-		       lazy_build=>1
-		       );
+has dispatch_table => (is=>'rw', isa=>'HashRef[CodeRef]', lazy_build=>1);
 
 sub handle_exception {
-    my ($self, $e) = @_;
-    my $type = get_exception_type($e) || 'Base';
-    my $function = $self->dispatch_table->{$type};
-    eval { $function->($e) };
-    die $@ if $@;
+    my ($self, $args) = @_;
+    my $err = $args->{error};
+    my $exception =  $args->{exception} || $err->{exception};
+    my $msg = $args->{message} || $err->{message};
+    try {
+      $exception->throw(error=>$err);
+    } catch {
+      my $exception_handler = $self->dispatch_table->{$exception};
+      try { 
+	$exception_handler->({message=>$msg, error=>$err});
+      } catch {
+	die $@;
+      };
+    };
     return $self;
 }
 

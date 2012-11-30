@@ -1,12 +1,15 @@
 bus-bootcamp
 ============
 
+Hacking on the SysFS with Perl in an Embedded Linux environment
+
 bus_bootcamp
 
-This module contains contains packages of Moose types that enable a perl programmer to develop drivers to talk to different hardware components in an embedded linux environment via GPIO (General Purpose Input Output) lines.
+This module contains contains packages of Moose types that help a perl programmer to develop drivers to talk to different hardware components in an embedded linux environment via GPIO (General Purpose Input Output) lines.
 
 This is accomplished by gaining programmatic access to various buses (SPI, I2C, UART, 1WIRE, usb,).  Send and recieve data to these buses using a unified interface.  Further provide a framework for adding new buses.  Like the Bus Pirate, this is primary a tool used for design and diagnostic purposes.
 
+GPIO allows access to hardware through the unix file abstraction.
 
 There are of course some rules but they are reasonable enough assumptions to make in the embedded Linux domain.
 

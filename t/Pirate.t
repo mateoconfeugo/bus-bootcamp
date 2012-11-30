@@ -61,7 +61,7 @@ test 'switching the type of data bus ' => sub {
 };
 
 
-test 'reseting the bus pirate' => sub {
+test 'resetting the bus pirate' => sub {
   my ($self) = @_;
   plan tests => 2;
   lives_and { is(1, $self->bp->reset()) } 'reset bus pirate';

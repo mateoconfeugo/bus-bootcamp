@@ -1,20 +1,23 @@
 package Bus::Exception;
 use Exception::Class (
-		      'Bus::Exception::Generic' => { alias => 'throw_bus', isa=>'Exception::Class' },
+		      'InvalidArgs' => { 
+					description => 'invalid method parameter(s)'
+				       },
+		      'BusPirate' => { 
+				      description => 'Generic Bus Pirate exception';
+				     },
 		      'I2C' => { 
-					 isa => 'Bus::Exception::Generic',
-					 alias  => 'throw_i2c'
-					},
+				isa => 'BusPirate',
+				description  => 'i2c bus error'
+			       },
 		      'SPI' => {
-					 isa         => 'Bus::Exception::Generic',
-					 description => 'These exceptions are related to problems with spi bus',
-					 alias  => 'throw_spi'
+				isa => 'BusPirate',
+				description => 'These exceptions are related to problems with spi bus',
 					},
 		      'Monitoring' => {
-						isa    => 'Bus::Exception::Generic',
-						fields => [ 'data', 'path' ],
-						alias  => 'throw_monitor'
-					       },
+				       fields => [ 'data', 'path' ],
+				       description => 'problems with diagnostic channels'
+				      },
 		     );
 1;
 __END__
