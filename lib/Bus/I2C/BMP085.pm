@@ -1,19 +1,33 @@
 package Bus::I2C::BMP085;
+
+# DEPENDENCIES
 use Moose;
 use Log::Log4perl qw(:easy);
- 
-with qw(Throwable);              # throw method
-with 'MooseX::Log::Log4perl::Easy';
-with Bus::Driver => { driver => $self->config->{driver_type} || 'Bus::Pirate' }; 
+use Moose::Util qw(apply_all_roles);
+use Try::Tiny;
+use Bus::Pirate;
 
-BEGIN { Log::Log4perl->easy_init(); }
-use constant INPUT => "\xee";
-use constant OUTPUT => "\xef";
-use constant RAW_MESUREMENT_MSB => "\xf6";
-use constant RAW_MESUREMENT_LSB => "\xf7";
-use constant RAW_ADDR => "\xf4";
-use constant RAW_VAL => "\x2e";
-use constant OSS => "\x2e";
+ 
+# ROLES - more in constructor
+with qw(Throwable);          
+with 'MooseX::Log::Log4perl::Easy';
+with 'Bus::Time::Util';
+with 'Bus::Meta::Util';
+with 'Bus::Exception::Engine';
+
+# COMPILE TIME DIRECTIVES 
+BEGIN { 
+  Log::Log4perl->easy_init(); 
+}
+
+# CONSTANTS
+use constant INPUT => 0xee;
+use constant OUTPUT => 0xef;
+use constant RAW_MEASUREMENT_MSB => 0xf6;
+use constant RAW_MEASUREMENT_LSB => 0xf7;
+use constant RAW_ADDR => 0xf4;
+use constant RAW_VAL => 0x2e;
+use constant OSS => 0x2e;
 use constant POWER => 0x8;
 use constant PULLUPS => 0x4;
 use constant AUX => 0x2;
@@ -26,9 +40,10 @@ use constant AUX_PIN => 0x10;
 use constant PULLUP_PIN => 0x20;
 use constant POWER_PIN => 0x40;
 
-has temperature => (is=>'ro', isa=>'Int', reader=>'calculate_temperature');
-has pressure => (is=>'ro', isa=>'Int', reader=>'calculate_pressure'););
-has coefficient_map => (is=>'ro', isa=>'HashRef[ArrarRef]', lazy_build=>1);
+# ATTRIBUTES
+has temperature => (is=>'ro', isa=>'Int'); #, reader=>'calculate_temperature');
+has pressure => (is=>'ro', isa=>'Int'); #, reader=>'calculate_pressure');
+has coefficient_map => (is=>'ro', isa=>'HashRef[ArrayRef]', lazy_build=>1);
 has timeout => (is=>'ro', isa=>'HashRef[ArrarRef]', defaults=>.02);
 has AC1 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has AC2 => (is=>'rw', isa=>'Int', lazy_build=>1);
@@ -46,34 +61,31 @@ has B7 => (is=>'rw', isa=>'Int');
 has MB => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MC => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MD => (is=>'rw', isa=>'Int', lazy_build=>1);
+#has driver=> (is=>'rw', lazy_build=>1, handles=>['send']);
+has driver => (is=>'rw', handles=>['send', 'i2c_bulk_transfer']);
+has config => (is=>'rw', isa=>'HashRef');
 
-sub BUILD { 
-  my $self = shift;
-  try {
-    $self->enter_i2c();
-    try {
-      $self->i2c_cfg_pins({bitmask=>POWER_PIN | PULLUPS_PIN});
-      try {
-	$self->i2c_set_speed(50KHZ);
-      } catch {
-	$self->throw({exception=>'BusPirate', error=>$_, message=>'unable to configure bus speed for i2c mode'});
-      };
-    } catch {
-      $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to configure pins for i2c mode'});
-    };
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to enter into ic2 bus mode'});
-  };
-  $self->$calculate_temperature;
-  $self->$calculate_pressure;
-  $self->log_debug("Calibration Coefficient  $attr :" . $self->$attr) for my $attr (qw[AC1 AC2 AC3 AC4 AC5 AC6 B1 B2 B3 B4 B5 B6 B7 MB MC MD]);
-  return $self;
+sub _build_driver {
+    my $self = shift;
+    return Bus::Pirate->new({config=>$self->config})
 }
+
+# CONSTRUCTOR
+
+sub polymorphism_ala_carte {
+   my $self = shift;
+   my $c = $self->config;
+   my $interface = $c->{active_interface};
+   my $implementation = $c->{$interface};
+   my $module =  $implementation;
+   apply_all_roles($self, $interface, {backend => $module, config => $c});
+   return $self;
+};
 
 sub calculate_temperature {
   my ($self) = @_;
   $self->write(RAW_ADDR, RAW_VAL); # Start temperature measurement
-  my $uncompensated_temperature = ( ($self->read(RAW_MESUREMENT_MSB) << 8) + $self->read(RAW_MESUREMENT_LSB) );
+  my $uncompensated_temperature = ( ($self->read(RAW_MEASUREMENT_MSB) << 8) + $self->read(RAW_MEASUREMENT_LSB) );
   my $x1 = ($uncompensated_temperature - $self->AC6) * $self->AC5 >> 15;
   my $x2 = ($self->MC << 11) / ($x1 + $self->MD);
   my $b5 = $x1 + $x2;
@@ -83,16 +95,22 @@ sub calculate_temperature {
   return $temperature;
 }
 
+around 'calculate_pressure' => sub {
+    my ($method, $self, $args) = @_;
+    $self->calculate_temperature();
+    return $self->$method();
+};
+
 sub calculate_pressure {
   my ($self) = @_;
   $self->calculate_temperature();
   $self->write(0xf4, (0x34 + (OSS << 6) )); # Start pressure measurement
-  my $lsb =$self->read(RAW_MESUREMENT_LSB);
-  my $msb = $self->read(RAW_MESUREMENT_MSB); 
+  my $lsb =$self->read(RAW_MEASUREMENT_LSB);
+  my $msb = $self->read(RAW_MEASUREMENT_MSB); 
   my $up = ( ($msb << 16) + ($lsb + 8) ) >> (8 - OSS);
   my $b6 = $self->B5  - 4000;   
-  my $x1 = ($self->B2 * ($b6 * ($bs/(2**12))))/(2**11);
-  my $x2 = ($self->AC2 * (B6/(2**11)));
+  my $x1 = ($self->B2 * ($b6 * ($b6/(2**12))))/(2**11);
+  my $x2 = ($self->AC2 * ($b6/(2**11)));
   my $x3 = $x1 + $x2;
   my $b3 = ((($self->AC1 * 4) + $x3) << OSS + 2)/4;
   $x1 = ($self->AC3 * $b6)/(2**13);
@@ -129,7 +147,7 @@ sub read {
 sub write { 
   my ($self, $address, $value) = @_;
   $self->log_debug("writing $value to address: $address");
-  $self->writer_register(INPUT, $address, $value); 
+  $self->write_register(INPUT, $address, $value); 
 }
 
 sub write_register {
@@ -137,7 +155,7 @@ sub write_register {
   pause({for=>4.5, units=>'ms'});
   my $data = [$write_address, $address, $value];
   $self->i2c_send_start_bit();
-  $self->i2c_bulk_transfer(length($data), $data);
+  $self->i2c_bulk_transfer({data=>$data});
   $self->log_debug("sending data: $data");
   $self->i2c_send_stop_bit();
 }
@@ -146,11 +164,11 @@ sub read_register {
   my ($self, $read_address, $value_address) = @_;
   my $data = [$read_address, $value_address];
   $self->i2c_send_start_bit();
-  $self->i2c_bulk_transfer(length($data), $data);
+  $self->i2c_bulk_transfer({data=>$data});
   $self->log_debug("reading data: $data");
   $self->i2c_send_start_bit();
-  $self->i2c_bulk_transfer(lenght([OUTPUT]),[OUTPUT]);
-  my $output = unpack('b', $self->i2c_read_byte())[0];
+  $self->i2c_bulk_transfer({data=>[OUTPUT]});
+  my $output = unpack('b', $self->i2c_read_byte())->[0];
   $self->log_debug("reading output: $output");
   $self->i2c_send_stop_bit();
   return $output;
@@ -180,25 +198,69 @@ sub _build_coefficient_map {
 	 };
 }
 
-sub _build_AC1 { $_[0]->get_coefficient('AC1');
-sub _build_AC2 { $_[0]->get_coefficient('AC2');
-sub _build_AC3 { $_[0]->get_coefficient('AC3');
-sub _build_AC4 { $_[0]->get_coefficient('AC4');
-sub _build_AC5 { $_[0]->get_coefficient('AC5');
-sub _build_AC6 { $_[0]->get_coefficient('AC6');
-sub _build_B1  { $_[0]->get_coefficient('B1');
-sub _build_B2  { $_[0]->get_coefficient('B2');
-sub _build_MB  { $_[0]->get_coefficient('MB');
-sub _build_MC  { $_[0]->get_coefficient('MC');
-sub _build_MD  { $_[0]->get_coefficient('MD');
+sub _build_AC1 { $_[0]->get_coefficient('AC1') }
+sub _build_AC2 { $_[0]->get_coefficient('AC2') }
+sub _build_AC3 { $_[0]->get_coefficient('AC3') }
+sub _build_AC4 { $_[0]->get_coefficient('AC4') }
+sub _build_AC5 { $_[0]->get_coefficient('AC5') }
+sub _build_AC6 { $_[0]->get_coefficient('AC6') }
+sub _build_B1  { $_[0]->get_coefficient('B1') }
+sub _build_B2  { $_[0]->get_coefficient('B2') }
+sub _build_MB  { $_[0]->get_coefficient('MB') }
+sub _build_MC  { $_[0]->get_coefficient('MC') }
+sub _build_MD  { $_[0]->get_coefficient('MD') }
+
+sub BUILD { 
+    my ($self, $args) = @_;
+  # Connect interface to backend implementation via
+    $self = $self->polymorphism_ala_carte(); 
+  # I2C role applied now because it requires methods from the backend
+    apply_all_roles($self, 'Bus::I2C'); 
+    my $success = 0;
+  # Configure the hardware
+    try {
+	$success = $self->enter_i2c();
+    try {
+      $success = $self->i2c_cfg_pins(); #      $self->i2c_cfg_pins({bitmask=>POWER_PIN | PULLUPS_PIN});
+      try {
+	$success = $self->i2c_set_speed();#	$self->i2c_set_speed(50KHZ);
+      }
+      catch {
+	$self->throw({exception=>'BusPirate', error=>$_, message=>'unable to configure bus speed for i2c mode'});
+      };
+    } catch {
+      $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to configure pins for i2c mode'});
+    };
+  } catch {
+    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to enter into ic2 bus mode'});
+  };
+  $success ? return $self : $self->throw({exception=>'BMP085', error=>$args, message=>'unable to configure/setup bmp085'})
+}
 
 sub run {
-  my $bmp085 = Bus::I2C::BMP085->new();
-  my $temperature = $bmp085->temperature();
-  my $pressure = $bmp085->pressure();
-  print "The current temperature is $temperature\n";
-  print "The current pressure is $pressure\n";
+  my $cfg = {
+	     'active_interface' => 'Bus::Driver',
+	     'Bus::Driver'=> 'Bus::Pirate',
+	     file=>'/dev/tty.usbserial-A800KBPV'
+	    };
+
+  my $bmp085 =  try { 
+      __PACKAGE__->new({config=>$cfg});
+  } catch {
+      warn "unable to create the bmp due to error: $_\n"
+  };
+  
+  try {
+      my $temperature = $bmp085->calculate_temperature();
+      my $pressure = $bmp085->calculate_pressure();
+      warn "The current temperature is $temperature\n";
+      warn "The current pressure is $pressure\n";
+  } catch {
+      $bmp085->handle_exception({exception=>$_, message=>"problems while reading sensors"});
+  };
 }
+
+run() unless caller;
 
 __PACKAGE__->meta->make_immutable;
 no Moose;

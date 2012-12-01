@@ -4,7 +4,7 @@ use Exception::Class (
 					description => 'invalid method parameter(s)'
 				       },
 		      'BusPirate' => { 
-				      description => 'Generic Bus Pirate exception';
+				      description => 'Generic Bus Pirate exception'
 				     },
 		      'I2C' => { 
 				isa => 'BusPirate',

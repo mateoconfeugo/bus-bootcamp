@@ -14,9 +14,9 @@ sub handle_exception {
     try {
       $exception->throw(error=>$err);
     } catch {
-      my $exception_handler = $self->dispatch_table->{$exception};
       try { 
-	$exception_handler->({message=>$msg, error=>$err});
+	  my $exception_handler = $self->dispatch_table->{$exception};
+	  $exception_handler->({message=>$msg, error=>$err});
       } catch {
 	die $@;
       };

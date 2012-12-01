@@ -1,19 +1,23 @@
 package Bus::Pirate;
+
+# DEPENDENCIES
 use Moose;
 use Moose::Util::TypeConstraints;
 use Try::Tiny;
 use Bus::Exception;
 
+# ROLES
 with qw(Throwable);              # throw method
-with qw(Bus::Time);              # pause method
+with qw(Bus::Time::Util);              # pause method
 with qw(Bus::Serial);            # serial_port attribute
 with qw(Bus::Debug);             # debug method
 with qw(Bus::Exception::Engine); # handle_exception method
 with qw(Bus::I2C);               # i2c related functions
+with qw(Bus::Meta::Util);
 
+# CONSTANTS
 use constant SETIN => "\x40"; #set pin direction input(1) output (0), returns read
 use constant SETON => "\x80"; #set pins on (1), returns read
-
 # Bits are assigned as such:
 use constant MOSI => "\x01";
 use constant CLK => "\x02";
@@ -23,20 +27,33 @@ use constant AUX => "\x10";
 use constant PULLUP => "\x20";
 use constant POWER => "\x40";
 
+# ATTRIBUTES
 has io_mode => (is=>'rw', isa=> enum([qw(binary user)]) );
 has bus_mode => (is=>'rw', isa=> enum([qw(i2c spi uart 1wire)]) );
 has modes => (is=>'ro', isa=>'HashRef', lazy_build=>1);
+has config => (is=>'ro', isa=>'HashRef', requires=>1);
 
-around 'enter_binary_mode' => sub {
-  my($method, $self, $args) = @_;
-  my $sucess = try { 
-    $self->$method($args); 
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to enter binary mode'});
-  }
-  return $self;
-};
+sub BUILD {
+    my $self = shift;
+    $self->exit_binary_mode();
+    $self->pause();
+    $self->enter_binary_mode();
 
+}
+
+# INTERFACE METHODS
+sub send {
+   my ($self, $args) = @_;
+   my $msg = $args->{message};
+   my $duration = $args->{delay} || .02;
+   my $how_many = $args->{read_length} || 5;
+   $self->serial_port->write("$msg");
+   $self->pause({for=>$duration});
+   my $output = $self->serial_port->read($how_many);
+   return $output;
+}
+
+# METHODS
 sub enter_binary_mode {
   my ($self) = @_;
   my $count=40;
@@ -56,40 +73,17 @@ sub enter_binary_mode {
   return 0;
 }
 
-around 'exit_binary_mode' => sub {
-  my($method, $self, $args) = @_;
-  my $sucess = try { 
-    $self->$method($args); 
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to exit binary mode'});
-  }
-  return $self;
-};
-
 sub exit_binary_mode{
   my ($self, $args) = @_;
-  my $is_in_binary_mode =  $self->enter_binary_mode; #return to BBIO mode (0x00), (should get BBIOx)
-  $self->serial_port->write("\x0F")  if $is_in_binary_mode;
+  $self->serial_port->write("\x0F");
   $self->io_mode('user');
-  return $is_in_binary_mode;
+  return 1;
 }
-
-around 'send_bus_pirate_cmd' => sub {
-  my($method, $self, $args) = @_;
-  my ($bb_cmd, $ret_val) = @$args{qw[bb_cmd ret_val]};
-  $self->throw({exception=>'InvalidArgs', message=>$args}) unless $bb_cmd && $ret_val;
-  my $sucess = try { 
-    $self->$method($args); 
-  } catch {
-    $self->throw({exception=>'BusPirate::Command', error=>$_, message=> "unable to send bus pirate the cmd: $bb_cmd"});
-  }
-  return $self;
-};
 
 sub send_bus_pirate_cmd {
   my ($self, $args) = @_;
-  $self->enter_binary_mode unless $self->io_mode eq 'binary';
   my ($bb_cmd, $ret_val, $number_of_bytes) = @$args{qw[bb_cmd ret_val bytes]};
+  $self->enter_binary_mode unless $self->io_mode eq 'binary';
   $self->pause({for=>.02});
   $self->serial_port->write($bb_cmd); 
   if ($ret_val) {
@@ -112,18 +106,6 @@ sub reset {
   $success ? return 1 : return 0;
 }
 
-# Handle preconditions and exception logic around changing a bus
-around 'switch_bus' => sub {
-  my($method, $self, $args) = @_;
-  $self->throw({exception=>'InvalidArgs', message=>$args}) unless $args->{mode};
-  my $sucess = try { 
-    $self->$method($args); 
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=> "unable to switch bus"});
-  }
-  $success ? return 1 : return 0;
-};
-
 sub switch_bus {
   my ($self, $args) = @_;
   my $mode = $args->{mode};
@@ -136,6 +118,65 @@ sub switch_bus {
   $success ? $self->bus_mode($mode) && return 1 : return 0;
 }
 
+sub i2c_bulk_transfer {
+  my ($self, $args) = @_;
+  my $byte_data = $args->{data};
+  my $byte_count = scalar @$byte_data;
+  return if $byte_data eq 'None';
+  $self->serial_port->write(("\x10" | ($byte_count-1)));
+  my $data;
+  for my $i (0..$byte_count) {
+    $self->serial_port->write($byte_data->[$i]);
+    $data = $self->serial_port->read($byte_count+1);
+  }
+  return $data;
+}
+
+# METHOD MODIFIERS - Arguement validation and exception handling
+around 'enter_binary_mode' => sub {
+  my($method, $self, $args) = @_;
+  my $sucess = try { 
+    $self->$method($args); 
+  } catch {
+    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to enter binary mode'});
+  };
+  return $self;
+};
+
+around 'exit_binary_mode' => sub {
+  my($method, $self, $args) = @_;
+  my $sucess = try { 
+    $self->$method($args); 
+  } catch {
+    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to exit binary mode'});
+  };
+  return $self;
+};
+
+around 'send_bus_pirate_cmd' => sub {
+  my($method, $self, $args) = @_;
+  my ($bb_cmd, $ret_val) = @$args{qw[bb_cmd ret_val]};
+  $self->throw({exception=>'InvalidArgs', message=>$args}) unless $bb_cmd && $ret_val;
+  my $sucess = try { 
+    $self->$method($args); 
+  } catch {
+    $self->throw({exception=>'BusPirate::Command', error=>$_, message=> "unable to send bus pirate the cmd: $bb_cmd"});
+  };
+  return $self;
+};
+
+# Handle preconditions and exception logic around changing a bus
+around 'switch_bus' => sub {
+  my($method, $self, $args) = @_;
+  $self->throw({exception=>'InvalidArgs', message=>$args}) unless $args->{mode};
+  my $success = try { 
+    $self->$method($args); 
+  } catch {
+    $self->throw({exception=>'BusPirate', error=>$_, message=> "unable to switch bus"});
+  };
+  $success ? return 1 : return 0;
+};
+
 around 'send' => sub {
   my($method, $self, $args) = @_;
   my $message = $args->{message};
@@ -144,19 +185,9 @@ around 'send' => sub {
     $self->$method($args); 
   } catch {
     $self->throw({exception=>'I2C', error=>$_, message=>"unable to send the cmd: $message while in i2c mode"});
-  }
+  };
   return $response_data;
 };
-
-sub send {
-   my ($self, $args) = @_;
-   my $msg = $args->{message};
-   my $duration = $args>{delay} || .02;
-   $self->serial_port->write($msg);
-   $self->pause({for=>$duration});
-   return $self->response();
-}
-
 
 sub _build_modes {
   my ($self, $args) = @_; 
@@ -169,6 +200,7 @@ sub _build_modes {
 	 };
 }
 
+# MODULINO FUNCTION - actualize the synopsis! - Be your own component test
 sub run {
   my $bus_pirate = __PACKAGE__->new();
 
@@ -196,8 +228,9 @@ sub run {
     my $the_fix = $bus_pirate->handle_exception({error=>$_});
     try { $the_fix->() } if ref $the_fix eq 'CODE';
   };
+}
 
-  run() unless caller;
+run() unless caller;
 
 __PACKAGE__->meta->make_immutable();
 no Moose;
@@ -292,7 +325,7 @@ See L<Bus-Pirate/BUGS> for details on reporting bugs.
 
 =head1 AUTHOR
 
-Bus::Pirate is maintained by Matt Burns
+Bus::Pirate is maintained by Matthew Burns
 
 =head1 COPYRIGHT AND LICENSE
 
