@@ -4,7 +4,7 @@ use Carp;
 use Bus::Exception;
 use Try::Tiny;
 
-has dispatch_table => (is=>'rw', isa=>'HashRef[CodeRef]', lazy_build=>1);
+has exception_dispatch_table => (is=>'rw', isa=>'HashRef[CodeRef]', lazy_build=>1);
 
 sub handle_exception {
     my ($self, $args) = @_;
@@ -15,7 +15,7 @@ sub handle_exception {
       $exception->throw(error=>$err);
     } catch {
       try { 
-	  my $exception_handler = $self->dispatch_table->{$exception};
+	  my $exception_handler = $self->exception_dispatch_table->{$exception};
 	  $exception_handler->({message=>$msg, error=>$err});
       } catch {
 	die $@;
@@ -66,7 +66,7 @@ sub log_exception {
     return $self;
 }
 
-sub _build_dispatch_table {
+sub _build_exception_dispatch_table {
     my ($self, $args) = @_;
 
     # Ensure all exceptions are objects.
@@ -84,7 +84,7 @@ sub _build_dispatch_table {
 	      Base => sub { $self->default_exception_handler($_[0]) },
 	      I2C => sub { $self->default_exception_handler($_[0]) },
 	      SPI => sub { $self->default_exception_handler($_[0]) },
-	      Monitorying =>  sub { $self->default_exception_handler($_[0]) },
+	      Monitoring =>  sub { $self->default_exception_handler($_[0]) },
 	     };
     return $dt;
 }

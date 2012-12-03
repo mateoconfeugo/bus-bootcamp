@@ -14,6 +14,7 @@ with 'MooseX::Log::Log4perl::Easy';
 with 'Bus::Time::Util';
 with 'Bus::Meta::Util';
 with 'Bus::Exception::Engine';
+with 'Bus::Math';
 
 # COMPILE TIME DIRECTIVES 
 BEGIN { 
@@ -53,11 +54,11 @@ has AC5 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has AC6 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has B1 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has B2 => (is=>'rw', isa=>'Int', lazy_build=>1);
-has B3 => (is=>'rw', isa=>'Int');
-has B4 => (is=>'rw', isa=>'Int');
-has B5 => (is=>'rw', isa=>'Int');
-has B6 => (is=>'rw', isa=>'Int');
-has B7 => (is=>'rw', isa=>'Int');
+has B3 => (is=>'rw' );
+has B4 => (is=>'rw' );
+has B5 => (is=>'rw' );
+has B6 => (is=>'rw' );
+has B7 => (is=>'rw' );
 has MB => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MC => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MD => (is=>'rw', isa=>'Int', lazy_build=>1);
@@ -138,9 +139,10 @@ sub calculate_pressure {
 }
 
 sub read { 
- my ($self, $address) = @_;
- my $value = $self->read_register(OUTPUT, $address); 
- $self->log_debug("read $value from address: $address");
+ my ($self, $register_address) = @_;
+# my $value = $self->read_register(OUTPUT, $address); 
+ my $value = $self->get_register({address=>$register_address}); 
+ $self->log_debug("read $value from address: $register_address");
  return $value;
 }
 
@@ -160,18 +162,29 @@ sub write_register {
   $self->i2c_send_stop_bit();
 }
 
-sub read_register {
-  my ($self, $read_address, $value_address) = @_;
-  my $data = [$read_address, $value_address];
-  $self->i2c_send_start_bit();
-  $self->i2c_bulk_transfer({data=>$data});
-  $self->log_debug("reading data: $data");
-  $self->i2c_send_start_bit();
-  $self->i2c_bulk_transfer({data=>[OUTPUT]});
-  my $output = unpack('b', $self->i2c_read_byte())->[0];
-  $self->log_debug("reading output: $output");
-  $self->i2c_send_stop_bit();
-  return $output;
+sub control_register {
+    my ($self, $args) = @_;
+    my $write_addr = $args->{write_address} || INPUT;
+    my $register = $args->{register};
+    my $val = $args->{value};
+    my $data = [ $write_addr, $register, $val];
+    $self->i2c_send_start_bit();
+    $self->i2c_bulk_transfer({data=>$data});
+    $self->i2c_send_stop_bit();
+}
+
+sub get_register {
+    my ($self, $args) = @_;
+    my $write_addr = $args->{write_address} || INPUT;
+    my $address = $args->{address};
+    my $data = [ $write_addr, $address];
+    $self->i2c_send_start_bit();
+    $self->i2c_bulk_transfer({data=>$data});
+    $self->i2c_send_start_bit();
+    $self->i2c_bulk_transfer({data=>[OUTPUT]});
+    $self->i2c_send_stop_bit();
+    my $buffer = unpack('C*', $self->i2c_read_byte());
+    return $buffer;
 }
 
 sub get_coefficient {
@@ -184,17 +197,17 @@ sub get_coefficient {
 
 sub _build_coefficient_map {
   return { 
-	  A1 => [qw|\xaa \xab|],
-	  A2 => [qw|\xac \xad|],
-	  A3 => [qw|\xae \xaf|],
-	  A4 => [qw|\xb0 \xb1|],
-	  A5 => [qw|\xb2 \xb3|],
-	  A6 => [qw|\xb4 \xb5|],
-	  B1 => [qw|\xb6 \xb7|],
-	  B2 => [qw|\xb8 \xb9|],
-	  MC => [qw|\xba \xbb|],
-	  MB => [qw|\xbc \xbd|],
-	  MD => [qw|\xbe \xbf|],
+	  AC1 => [0xaa, 0xab],
+	  AC2 => [0xac, 0xad],
+	  AC3 => [0xae, 0xaf],
+	  AC4 => [0xb0, 0xb1],
+	  AC5 => [0xb2, 0xb3],
+	  AC6 => [0xb4, 0xb5],
+	  B1 =>  [0xb6, 0xb7],
+	  B2 =>  [0xb8, 0xb9],
+	  MC =>  [0xba, 0xbb],
+	  MB =>  [0xbc, 0xbd],
+	  MD =>  [0xbe, 0xbf],
 	 };
 }
 
@@ -203,7 +216,9 @@ sub _build_AC2 { $_[0]->get_coefficient('AC2') }
 sub _build_AC3 { $_[0]->get_coefficient('AC3') }
 sub _build_AC4 { $_[0]->get_coefficient('AC4') }
 sub _build_AC5 { $_[0]->get_coefficient('AC5') }
-sub _build_AC6 { $_[0]->get_coefficient('AC6') }
+sub _build_AC6 { 
+    $_[0]->get_coefficient('AC6') 
+}
 sub _build_B1  { $_[0]->get_coefficient('B1') }
 sub _build_B2  { $_[0]->get_coefficient('B2') }
 sub _build_MB  { $_[0]->get_coefficient('MB') }
@@ -212,29 +227,41 @@ sub _build_MD  { $_[0]->get_coefficient('MD') }
 
 sub BUILD { 
     my ($self, $args) = @_;
-  # Connect interface to backend implementation via
-    $self = $self->polymorphism_ala_carte(); 
-  # I2C role applied now because it requires methods from the backend
-    apply_all_roles($self, 'Bus::I2C'); 
-    my $success = 0;
-  # Configure the hardware
-    try {
-	$success = $self->enter_i2c();
-    try {
-      $success = $self->i2c_cfg_pins(); #      $self->i2c_cfg_pins({bitmask=>POWER_PIN | PULLUPS_PIN});
-      try {
-	$success = $self->i2c_set_speed();#	$self->i2c_set_speed(50KHZ);
-      }
-      catch {
-	$self->throw({exception=>'BusPirate', error=>$_, message=>'unable to configure bus speed for i2c mode'});
-      };
-    } catch {
-      $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to configure pins for i2c mode'});
+  
+    # Plugin custom exception handling;
+    $self->exception_dispatch_table->{BMP085} = sub { 
+	my ($me, $e) = @_;
+	warn "In a custom exception handler for BMP085";
+	$self->log_debug("BMP085 Exception Thrown");
+	$self->default_exception_handler($_[0]);
+	my $the_fix = sub { $self->i2c_start_sniffer() };
+	return $the_fix if $self->healing;
+	$self->throw({error=>$e, message=>'Generic BMP085 Exception'});
     };
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to enter into ic2 bus mode'});
-  };
-  $success ? return $self : $self->throw({exception=>'BMP085', error=>$args, message=>'unable to configure/setup bmp085'})
+    
+    # Connect interface to backend implementation via
+    $self = $self->polymorphism_ala_carte(); 
+    
+    # I2C role applied now because it requires methods from the backend
+    apply_all_roles($self, 'Bus::I2C'); 
+    
+    # Configure the hardware
+    my $success = 0;
+    try { 
+	$success = $self->enter_i2c();
+	try { 
+	    $success = $self->i2c_cfg_pins();
+	    try { 
+		$success = $self->i2c_set_speed();
+	    } catch {$self->throw({message=>'unable to configure bus speed for i2c mode',
+				   exception=>'BusPirate', error=>$_})};
+	} catch { $self->throw({message=>'unable to configure pins for i2c mode', 
+				exception=>'BusPirate', error=>$_ })};
+    } catch { $self->throw({ message=>'unable to enter into ic2 bus mode', 
+			     exception=>'BusPirate', error=>$_})};
+    $success ? 
+	return $self : 
+	$self->throw({exception=>'BMP085', error=>$args, message=>'unable to configure/setup bmp085'});
 }
 
 sub run {
@@ -251,12 +278,16 @@ sub run {
   };
   
   try {
+      my $foo = $bmp085->leach();
+      my $bin = $bmp085->dec2bin(11);
+      my $hex = $bmp085->bin2hex($bin);
+      $hex = $bmp085->dec2hex(11);
       my $temperature = $bmp085->calculate_temperature();
       my $pressure = $bmp085->calculate_pressure();
       warn "The current temperature is $temperature\n";
       warn "The current pressure is $pressure\n";
   } catch {
-      $bmp085->handle_exception({exception=>$_, message=>"problems while reading sensors"});
+      $bmp085->handle_exception({exception=>'BMP085', error=>$_, message=>"problems while reading sensors"});
   };
 }
 

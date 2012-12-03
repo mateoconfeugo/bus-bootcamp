@@ -14,6 +14,7 @@ with qw(Bus::Debug);             # debug method
 with qw(Bus::Exception::Engine); # handle_exception method
 with qw(Bus::I2C);               # i2c related functions
 with qw(Bus::Meta::Util);
+with qw(Bus::Math);
 
 # CONSTANTS
 use constant SETIN => "\x40"; #set pin direction input(1) output (0), returns read
@@ -123,16 +124,44 @@ sub i2c_bulk_transfer {
   my $byte_data = $args->{data};
   my $byte_count = scalar @$byte_data;
   return if $byte_data eq 'None';
-  $self->serial_port->write(("\x10" | ($byte_count-1)));
-  my $data;
-  for my $i (0..$byte_count) {
-    $self->serial_port->write($byte_data->[$i]);
-    $data = $self->serial_port->read($byte_count+1);
+#  my $cmd_byte = ("\x10" | ($byte_count-1));
+  my $cmd_byte = (0x10 | ($byte_count-1));
+  my $binary = $self->dec2bin($cmd_byte);
+#  $self->serial_port->write($self->dec2hex($cmd_byte));
+#  my $cmd = '\x' . $self->dec2hex($cmd_byte);
+  $self->serial_port->write(pack('C*', $cmd_byte));
+  my $data = $self->serial_port->read(255);
+  my $hex = $self->serial2hex($data) if $data;
+  for my $i (0..$byte_count-1 ) {
+      my $byte = $byte_data->[$i];
+      $self->serial_port->write(pack('C*', $byte));
+      $data = $self->serial_port->read($byte_count+2);
+      $hex = $self->serial2hex($data) if $data;
+      my $ph;
   }
   return $data;
 }
 
 # METHOD MODIFIERS - Arguement validation and exception handling
+
+=pod
+
+around 'i2c_send_start_bit, i2c_send_stop_bit i2c_send_ack, i2c_send_nack,
+        i2c_bulk_transfer, i2c_cfg_peripherals, i2c_set_speed' => sub { 
+	    my ($method, $self, $args) = @_;
+	    my $success;
+	    try {
+		$success = $self->$method->($args);
+		$self->serial2hex($success) == 0x01 ? 
+		    return 1 :
+		    $self->throw({exception=>'BusPirate', message=>"method: $method returned a error code: $success"});
+	    } catch {
+		$self->rethrow();
+	    };
+};
+
+=cut
+
 around 'enter_binary_mode' => sub {
   my($method, $self, $args) = @_;
   my $sucess = try { 

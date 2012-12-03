@@ -15,7 +15,8 @@ requires 'send';
 # Configuration Methods
 sub enter_i2c { 
     my ($self, $args) = @_;
-    $self->send({message=>"\x02", delay=>.1}) eq 'I2C1' ? return 1 : return 0; 
+    my $result_code = $self->send({message=>"\x02", delay=>.1});
+    $result_code  eq 'I2C1' ? 	return 1 : return 0; 
 }
 
 sub i2c_cfg_pins {
