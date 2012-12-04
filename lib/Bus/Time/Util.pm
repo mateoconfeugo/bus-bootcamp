@@ -1,4 +1,5 @@
 package Bus::Time::Util;
+# ABSTRACT: Time Data related methods in relation to bus domain.
 use Moose::Role;
 
 sub pause {

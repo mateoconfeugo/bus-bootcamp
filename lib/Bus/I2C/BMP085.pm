@@ -1,6 +1,6 @@
 package Bus::I2C::BMP085;
+# ABSTRACT: Temperatue and pressure sensor that communicates via I2C.
 
-# DEPENDENCIES
 use Moose;
 use Log::Log4perl qw(:easy);
 use Moose::Util qw(apply_all_roles);
@@ -280,18 +280,6 @@ no Moose;
 1;
 
 __END__
-
-# ABSTRACT: Temperatue and Pressure Sensor that communicates via I2C
-
-=pod
-
-=head1 NAME
-
-Bus::Pirate - Temperatue and Pressure Sensor that communicates via I2C
-
-=head1 VERSION
-
-version 0.0.1
 
 =head1 SYNOPSIS
 

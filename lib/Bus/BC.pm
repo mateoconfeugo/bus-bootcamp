@@ -1,4 +1,5 @@
 package Bus::BC;
+# ABSTRACT: Module for developing and  testing the various types of buses used in an embedded environment
 use Moose;
 
 has master => (is=>'rw', isa=>'Str', required=>1);

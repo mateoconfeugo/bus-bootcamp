@@ -1,8 +1,6 @@
 package Bus::Math;
 use Moose::Role;
-
-#!/usr/bin/perl -w
-use strict;
+# ABSTRACT: Math common to manipulating buses and the  data on them
 
 use constant SETIN => 0x40; #set pin direction input(1) output (0), returns read
 use constant SETON => 0x80; #set pins on (1), returns read

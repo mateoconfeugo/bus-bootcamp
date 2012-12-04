@@ -1,4 +1,5 @@
 package Bus::Exception::Engine;
+# ABSTRACT: Exception Handling Framework Role
 use Moose::Role;
 use Carp;
 use Bus::Exception;

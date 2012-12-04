@@ -1,5 +1,6 @@
 package Bus::I2C;
-# DEPENDENCIES
+# ABSTRACT: I2C buses methods for interacting with devices using the protocol.
+
 use Moose::Role;
 use Moose::Util qw(apply_all_roles);
 
@@ -129,17 +130,6 @@ no Moose;
 
 __END__
 
-# ABSTRACT: Moose::Role for talking to I2C enabled hardware via the  Bus Pirate;
-
-=pod
-
-=head1 NAME
-
-Bus::I2C - Moose::Role for talking to I2C enabled hardware via the  Bus Pirate;
-
-=head1 VERSION
-
-version 0.0.1
 
 =head1 DESCRIPTION
 

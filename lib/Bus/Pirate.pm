@@ -1,5 +1,6 @@
 package Bus::Pirate;
-# DEPENDENCIES
+# ABSTRACT:  Access the hardware resources via tool testing various types of data bus commonly used with micro controllers.
+
 use Moose;
 use Moose::Util::TypeConstraints;
 use Try::Tiny;
@@ -33,12 +34,11 @@ has bus_mode => (is=>'rw', isa=> enum([qw(i2c spi uart 1wire)]) );
 has modes => (is=>'ro', isa=>'HashRef', lazy_build=>1);
 has config => (is=>'ro', isa=>'HashRef', requires=>1);
 
+# CONSTRUCTOR 
 sub BUILD {
     my $self = shift;
     $self->exit_binary_mode();
-    $self->pause();
     $self->enter_binary_mode();
-
 }
 
 # INTERFACE METHODS
@@ -51,6 +51,37 @@ sub send {
    $self->pause({for=>$duration});
    my $output = $self->serial_port->read($how_many);
    return $output;
+}
+
+sub i2c_bulk_transfer {
+  my ($self, $args) = @_;
+  my $byte_data = $args->{data};
+  my $byte_count = scalar @$byte_data;
+  return if $byte_data eq 'None';
+  my $cmd_byte = (0x10 | ($byte_count-1));
+  my $binary = $self->dec2bin($cmd_byte);
+  $self->serial_port->write(pack('C*', $cmd_byte));
+  my $data = $self->serial_port->read(255);
+  my $hex = $self->serial2hex($data) if $data;
+  for my $i (0..$byte_count-1 ) {
+      my $byte = $byte_data->[$i];
+      $self->serial_port->write(pack('C*', $byte));
+      $data = $self->serial_port->read($byte_count+2);
+      $hex = $self->serial2hex($data) if $data;
+  }
+  return $data;
+}
+
+sub setup_i2c {    
+    my ($self, $args) = $args;
+    try { 
+	$success = $self->enter_i2c();
+	$success = $self->i2c_cfg_pins();
+	$success = $self->i2c_set_speed();
+    } catch { 
+	$self->throw({exception=>'BMP085', error=>$_, message=>'unable to configure/setup bmp085 with the Bus Pirate'});
+    }
+    return $self
 }
 
 # METHODS
@@ -118,43 +149,7 @@ sub switch_bus {
   $success ? $self->bus_mode($mode) && return 1 : return 0;
 }
 
-sub i2c_bulk_transfer {
-  my ($self, $args) = @_;
-  my $byte_data = $args->{data};
-  my $byte_count = scalar @$byte_data;
-  return if $byte_data eq 'None';
-#  my $cmd_byte = ("\x10" | ($byte_count-1));
-  my $cmd_byte = (0x10 | ($byte_count-1));
-  my $binary = $self->dec2bin($cmd_byte);
-#  $self->serial_port->write($self->dec2hex($cmd_byte));
-#  my $cmd = '\x' . $self->dec2hex($cmd_byte);
-  $self->serial_port->write(pack('C*', $cmd_byte));
-  my $data = $self->serial_port->read(255);
-  my $hex = $self->serial2hex($data) if $data;
-  for my $i (0..$byte_count-1 ) {
-      my $byte = $byte_data->[$i];
-      $self->serial_port->write(pack('C*', $byte));
-      $data = $self->serial_port->read($byte_count+2);
-      $hex = $self->serial2hex($data) if $data;
-      my $ph;
-  }
-  return $data;
-}
-
-# I2C Configuration Methods
-
-sub setup_i2c {    
-    my ($self, $args) = $args;
-    try { 
-	$success = $self->enter_i2c();
-	$success = $self->i2c_cfg_pins();
-	$success = $self->i2c_set_speed();
-    } catch { 
-	$self->throw({exception=>'BMP085', error=>$_, message=>'unable to configure/setup bmp085 with the Bus Pirate'});
-    }
-    return $self
-}
-
+# I2C Driver Configuration Methods
 sub enter_i2c { 
     $_[0]->send({message=>pack('C*',0x02), delay=>.1}) eq 'I2C1' ? return 1 : return 0; 
 }
@@ -171,13 +166,9 @@ sub i2c_set_speed {
     "\x01" eq $result_code ? return 1 : return 0; 
 }
 
-
 # METHOD MODIFIERS - Arguement validation and exception handling
-
-=pod
-
-around 'i2c_send_start_bit, i2c_send_stop_bit i2c_send_ack, i2c_send_nack,
-        i2c_bulk_transfer, i2c_cfg_peripherals, i2c_set_speed' => sub { 
+around 'i2c_send_start_bit, i2c_send_stop_bit i2c_send_ack, i2c_send_nack, i2c_bulk_transfer,
+        i2c_set_speed, i2c_cfg_pins, enter_i2c, enter_binary_mode, exit_binary_mode' => sub { 
 	    my ($method, $self, $args) = @_;
 	    my $success;
 	    try {
@@ -186,30 +177,10 @@ around 'i2c_send_start_bit, i2c_send_stop_bit i2c_send_ack, i2c_send_nack,
 		    return 1 :
 		    $self->throw({exception=>'BusPirate', message=>"method: $method returned a error code: $success"});
 	    } catch {
-		$self->rethrow();
+		$self->throw({exception=>'BMP085', error=$_, message=>'Device malfunction'});
 	    };
-};
-
-=cut
-
-around 'enter_binary_mode' => sub {
-  my($method, $self, $args) = @_;
-  my $sucess = try { 
-    $self->$method($args); 
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to enter binary mode'});
-  };
-  return $self;
-};
-
-around 'exit_binary_mode' => sub {
-  my($method, $self, $args) = @_;
-  my $sucess = try { 
-    $self->$method($args); 
-  } catch {
-    $self->throw({exception=>'BusPirate', error=>$_, message=>'unable to exit binary mode'});
-  };
-  return $self;
+	    return $self;
+		
 };
 
 around 'send_bus_pirate_cmd' => sub {
@@ -224,7 +195,6 @@ around 'send_bus_pirate_cmd' => sub {
   return $self;
 };
 
-# Handle preconditions and exception logic around changing a bus
 around 'switch_bus' => sub {
   my($method, $self, $args) = @_;
   $self->throw({exception=>'InvalidArgs', message=>$args}) unless $args->{mode};
@@ -258,36 +228,6 @@ sub _build_modes {
 	  'binary_raw_wire' => ['\x05', 'RAW1'],
 	 };
 }
-
-around 'enter_i2c' => sub {
-  my($method, $self, $args) = @_;
-  my $success = try { 
-    $self->$method($args); 
-  } catch {
-      $self->throw({exception=>'BMP085', error=>$args, message=>'unable to enter i2c mode with the bus pirate'});
-  };
-  $success ? return $self : $self->throw({error=>$_});
-};
-
-around 'i2c_cfg_pins' => sub {
-  my($method, $self, $args) = @_;
-  my $success = try { 
-    $self->$method($args); 
-  } catch {
-      $self->throw({message=>'unable to configure pins for i2c mode', exception=>'BusPirate', error=>$_ }
-  };
-  $success ? return $self : $self->throw({error=>$_});
-};
-
-around 'i2c_set_speed' => sub {
-  my($method, $self, $args) = @_;
-  my $success = try { 
-    $self->$method($args); 
-  } catch {
-      $self->throw({message=>'unable to configure bus speed for i2c mode', exception=>'BusPirate', error=>$_})
-  };
-  $success ? return $self : $self->throw({error=>$_});
-};
 
 # MODULINO FUNCTION - actualize the synopsis! - Be your own component test
 sub run {
@@ -326,19 +266,6 @@ no Moose;
 1;
 
 __END__
-
-# ABSTRACT: Perl Wrapper around the Bus Pirate hardware 
-
-
-=pod
-
-=head1 NAME
-
-Bus::Pirate- The way perl apps access the hardware resource for testing various types of data bus commonly used with micro controllers.
-
-=head1 VERSION
-
-version 0.0.1
 
 =head1 SYNOPSIS
 

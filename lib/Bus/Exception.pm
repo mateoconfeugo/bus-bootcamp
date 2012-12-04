@@ -1,4 +1,5 @@
 package Bus::Exception;
+# ABSTRACT: The various exceptions thrown in the Bus modules
 use Exception::Class (
 		      'InvalidArgs' => { 
 					description => 'invalid method parameter(s)'

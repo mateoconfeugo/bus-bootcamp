@@ -1,4 +1,5 @@
 package Bus::Meta::Util;
+# ABSTRACT: Convience functions to make figuring out what methods are available to objects using roles
 use Moose::Role;
 
 sub methods {

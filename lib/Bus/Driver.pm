@@ -1,4 +1,5 @@
 package Bus::Driver;
+# ABSTRACT: Driver Interface that allows for hotswapable back end configurations
 use MooseX::Role::Parameterized;
  
 parameter backend => (required => 1);

@@ -1,4 +1,5 @@
 package Bus::Serial;
+# ABSTRACT: Wrap the serial port so can be rolled in object.
 use Moose::Role;
 use Device::SerialPort qw( :PARAM :STAT 0.07 );
 use Time::HiRes qw (sleep);

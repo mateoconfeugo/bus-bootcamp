@@ -1,3 +1,4 @@
+# ABSTRACT: place holder
 package Bus::Debug;
 use Moose::Role;
 
