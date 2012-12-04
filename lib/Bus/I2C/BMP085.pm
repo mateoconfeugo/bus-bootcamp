@@ -6,7 +6,6 @@ use Log::Log4perl qw(:easy);
 use Moose::Util qw(apply_all_roles);
 use Try::Tiny;
 use Bus::Pirate;
-
  
 # ROLES - more in constructor
 with qw(Throwable);          
@@ -54,7 +53,7 @@ has AC5 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has AC6 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has B1 => (is=>'rw', isa=>'Int', lazy_build=>1);
 has B2 => (is=>'rw', isa=>'Int', lazy_build=>1);
-has B3 => (is=>'rw' );
+has B3 => (is=>'rw', );
 has B4 => (is=>'rw' );
 has B5 => (is=>'rw' );
 has B6 => (is=>'rw' );
@@ -62,49 +61,71 @@ has B7 => (is=>'rw' );
 has MB => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MC => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MD => (is=>'rw', isa=>'Int', lazy_build=>1);
-#has driver=> (is=>'rw', lazy_build=>1, handles=>['send']);
-has driver => (is=>'rw', handles=>['send', 'i2c_bulk_transfer']);
 has config => (is=>'rw', isa=>'HashRef');
 
-sub _build_driver {
-    my $self = shift;
-    return Bus::Pirate->new({config=>$self->config})
+# CONSTRUCTOR
+sub BUILD { 
+    my ($self, $args) = @_;
+    # Plug in custom exception into exception handling framework;
+    $self->exception_dispatch_table->{BMP085} = sub { 
+	my ($me, $e) = @_;
+	$self->log_debug("BMP085 Exception Thrown");
+	$self->default_exception_handler($_[0]);
+	my $the_fix = sub { $self->i2c_start_sniffer() };
+	return $the_fix if $self->healing;
+	$self->throw({error=>$e, message=>'Generic BMP085 Exception'});
+    };
+    # hookup driver and install roles that use it.
+    $self = $self->connect_interface_to_implementation
+    apply_all_roles($self, 'Bus::I2C'); 
+    # Configure the hardware
+    try {
+	$self->setup_i2c(); # uses the driver 
+    } catch {
+	$self->throw({exception=>'BMP085', error=>$args, message=>'unable to configure/setup bmp085'});
+    };
+    return $self;
 }
 
-# CONSTRUCTOR
-
-sub polymorphism_ala_carte {
+sub connect_interface_to_implementation {
    my $self = shift;
    my $c = $self->config;
    my $interface = $c->{active_interface};
    my $implementation = $c->{$interface};
-   my $module =  $implementation;
-   apply_all_roles($self, $interface, {backend => $module, config => $c});
+   apply_all_roles($self, $interface, {backend => $implementation, config => $c});
    return $self;
 };
 
+# DOMAIN METHODS
 sub calculate_temperature {
   my ($self) = @_;
+  my $ac6 = $self->AC6; my $ac5 = $self->AC5;  my $md = $self->MD; my $mc = $self->MC;
+#  my $ut = 27590; #  my $ac5 = 25188; #  my $ac6 = 19172;  my $md = 2176;
+# TODO: fix this determine why lsb is not getting correct value some of the time
+  my $mc =  -11044; 
+
   $self->write(RAW_ADDR, RAW_VAL); # Start temperature measurement
-  my $uncompensated_temperature = ( ($self->read(RAW_MEASUREMENT_MSB) << 8) + $self->read(RAW_MEASUREMENT_LSB) );
-  my $x1 = ($uncompensated_temperature - $self->AC6) * $self->AC5 >> 15;
-  my $x2 = ($self->MC << 11) / ($x1 + $self->MD);
+  pause({for=>4.5, units=>'ms'});
+  
+  my $msb = $self->read(RAW_MEASUREMENT_MSB);
+  my $lsb = $self->read(RAW_MEASUREMENT_LSB);
+  my $ut = ($msb << 8) + $lsb;
+  $self->log_debug("uncompensated temperature: $ut");
+
+  my $x1 = (($ut - $ac6) * $ac5) >> 15;
+  my $x2 =  $mc * (2**11/($x1 + $md));
   my $b5 = $x1 + $x2;
-  $self->B5(5);
+  $self->B5($b5);
   my $temperature = ($b5 + 8) >> 4;
-  $self->log_info("temperature: $temperature");
+  my $fahrenheit = (9/5) * ($temperature/10) + 32;
+  $self->log_info("temperature: " .  ($temperature/10) . " C");
+  $self->log_info("temperature: $fahrenheit F");
   return $temperature;
 }
 
-around 'calculate_pressure' => sub {
-    my ($method, $self, $args) = @_;
-    $self->calculate_temperature();
-    return $self->$method();
-};
-
 sub calculate_pressure {
   my ($self) = @_;
-  $self->calculate_temperature();
+  my $temperature = $self->calculate_temperature();
   $self->write(0xf4, (0x34 + (OSS << 6) )); # Start pressure measurement
   my $lsb =$self->read(RAW_MEASUREMENT_LSB);
   my $msb = $self->read(RAW_MEASUREMENT_MSB); 
@@ -138,6 +159,18 @@ sub calculate_pressure {
   return $pressure;
 }
 
+sub get_coefficient {
+  my ($self, $coefficient) = @_;
+  my ($msb_addr, $lsb_addr) = @{$self->coefficient_map->{$coefficient}};
+  pause();
+  my $lsb = $self->read($lsb_addr);
+  pause();
+  my $msb = $self->read($msb_addr);
+  my $number = (($msb << 8) + $lsb);
+  return $number;
+}
+
+# AUXILIARY METHODS
 sub read { 
  my ($self, $register_address) = @_;
 # my $value = $self->read_register(OUTPUT, $address); 
@@ -154,7 +187,6 @@ sub write {
 
 sub write_register {
   my ($self, $write_address, $address, $value) = @_;
-  pause({for=>4.5, units=>'ms'});
   my $data = [$write_address, $address, $value];
   $self->i2c_send_start_bit();
   $self->i2c_bulk_transfer({data=>$data});
@@ -177,22 +209,17 @@ sub get_register {
     my ($self, $args) = @_;
     my $write_addr = $args->{write_address} || INPUT;
     my $address = $args->{address};
-    my $data = [ $write_addr, $address];
+    my $data = [$write_addr, $address];
     $self->i2c_send_start_bit();
     $self->i2c_bulk_transfer({data=>$data});
-    $self->i2c_send_start_bit();
-    $self->i2c_bulk_transfer({data=>[OUTPUT]});
     $self->i2c_send_stop_bit();
-    my $buffer = unpack('C*', $self->i2c_read_byte());
+    $self->i2c_send_start_bit();
+    my $output = $self->i2c_bulk_transfer({data=>[OUTPUT]});
+    $self->i2c_send_stop_bit();
+    my $raw = $self->i2c_read_byte();
+    my $buffer = unpack('C*', $raw);
+    $self->i2c_send_stop_bit();
     return $buffer;
-}
-
-sub get_coefficient {
-  my ($self, $coefficient) = @_;
-  my ($msb_addr, $lsb_addr) = @{$self->coefficient_map->{$coefficient}};
-  my $msb = $self->read($msb_addr);
-  my $lsb = $self->read($lsb_addr);
-  return (($msb << 8) + $lsb);
 }
 
 sub _build_coefficient_map {
@@ -205,8 +232,8 @@ sub _build_coefficient_map {
 	  AC6 => [0xb4, 0xb5],
 	  B1 =>  [0xb6, 0xb7],
 	  B2 =>  [0xb8, 0xb9],
-	  MC =>  [0xba, 0xbb],
-	  MB =>  [0xbc, 0xbd],
+	  MB =>  [0xba, 0xbb],
+	  MC =>  [0xBC, 0xBD],
 	  MD =>  [0xbe, 0xbf],
 	 };
 }
@@ -216,53 +243,12 @@ sub _build_AC2 { $_[0]->get_coefficient('AC2') }
 sub _build_AC3 { $_[0]->get_coefficient('AC3') }
 sub _build_AC4 { $_[0]->get_coefficient('AC4') }
 sub _build_AC5 { $_[0]->get_coefficient('AC5') }
-sub _build_AC6 { 
-    $_[0]->get_coefficient('AC6') 
-}
+sub _build_AC6 { $_[0]->get_coefficient('AC6') }
 sub _build_B1  { $_[0]->get_coefficient('B1') }
 sub _build_B2  { $_[0]->get_coefficient('B2') }
 sub _build_MB  { $_[0]->get_coefficient('MB') }
 sub _build_MC  { $_[0]->get_coefficient('MC') }
 sub _build_MD  { $_[0]->get_coefficient('MD') }
-
-sub BUILD { 
-    my ($self, $args) = @_;
-  
-    # Plugin custom exception handling;
-    $self->exception_dispatch_table->{BMP085} = sub { 
-	my ($me, $e) = @_;
-	warn "In a custom exception handler for BMP085";
-	$self->log_debug("BMP085 Exception Thrown");
-	$self->default_exception_handler($_[0]);
-	my $the_fix = sub { $self->i2c_start_sniffer() };
-	return $the_fix if $self->healing;
-	$self->throw({error=>$e, message=>'Generic BMP085 Exception'});
-    };
-    
-    # Connect interface to backend implementation via
-    $self = $self->polymorphism_ala_carte(); 
-    
-    # I2C role applied now because it requires methods from the backend
-    apply_all_roles($self, 'Bus::I2C'); 
-    
-    # Configure the hardware
-    my $success = 0;
-    try { 
-	$success = $self->enter_i2c();
-	try { 
-	    $success = $self->i2c_cfg_pins();
-	    try { 
-		$success = $self->i2c_set_speed();
-	    } catch {$self->throw({message=>'unable to configure bus speed for i2c mode',
-				   exception=>'BusPirate', error=>$_})};
-	} catch { $self->throw({message=>'unable to configure pins for i2c mode', 
-				exception=>'BusPirate', error=>$_ })};
-    } catch { $self->throw({ message=>'unable to enter into ic2 bus mode', 
-			     exception=>'BusPirate', error=>$_})};
-    $success ? 
-	return $self : 
-	$self->throw({exception=>'BMP085', error=>$args, message=>'unable to configure/setup bmp085'});
-}
 
 sub run {
   my $cfg = {
@@ -278,14 +264,10 @@ sub run {
   };
   
   try {
-      my $foo = $bmp085->leach();
-      my $bin = $bmp085->dec2bin(11);
-      my $hex = $bmp085->bin2hex($bin);
-      $hex = $bmp085->dec2hex(11);
       my $temperature = $bmp085->calculate_temperature();
       my $pressure = $bmp085->calculate_pressure();
-      warn "The current temperature is $temperature\n";
-      warn "The current pressure is $pressure\n";
+      print "The current temperature is $temperature\n";
+      print "The current pressure is $pressure\n";
   } catch {
       $bmp085->handle_exception({exception=>'BMP085', error=>$_, message=>"problems while reading sensors"});
   };
@@ -351,6 +333,55 @@ get the current temperature from the sensor.
 get the current pressure from the sensor.
 
 =back
+
+=head1 CONSTRUCTOR and SETUP METHODS
+
+=over 4
+
+=item B<< BUILD  >>
+
+Initialize the bmp085 sensor so that it is ready to go once created
+
+=item B<< connect_interface_to_implementation  >>
+
+Implementation of the polymorphism ala carte pattern to solve the expression problem.  In this case we allow the back end driver that supports this hardware to change.  For example here we can move from using the bus pirate tool as a driver during development to using a gpio based driver for the final version
+
+=back
+
+=head1 DOMAIN METHODS
+
+=over 4
+
+=item B<< calculate_temperature  >>
+
+probe the sensor and use the data to assemble the temperature via a algoritm provided by the hardware manufactuer.  Temperature is measured in degrees centigrade - celcius
+
+=item B<< calculate_pressure  >>
+
+probe the sensor and use the data to assemble the pressue via a algoritm provided by the hardware manufactuer. Pressure is measured in hPa which is Pressure = Force x  Surface Area Size in newton per square meter or pascal (Pa). hPA is hectopascal
+
+=item B<< get_coefficient  >>
+
+Retrieves the various device coefficients used in the temperature and pressure calculations.  Values are formed by retrieving values from two address and using those values as the msb and lsb of the returned value which is created ($msb << 8) + $lsb.
+
+=back
+
+=head1 AUXILIARY METHODS
+
+=over 4
+
+=item B<< read  >>
+
+=item B<< write  >>
+
+=item B<< get_register  >>
+
+=item B<< write_register  >>
+
+=item B<< control_register  >>
+
+=back
+
 
 =head1 BUGS
 

@@ -9,6 +9,8 @@ role {
   Class::MOP::load_class($p->backend);
   my $backend = $p->backend->new({config=>$p->config});
 
+  has driver => (is=>'rw', handles=>['send', 'i2c_bulk_transfer', 'setup_i2c']);
+
   method 'send' => sub {
      	my ($self, $args) = @_;
 	$self->driver($backend);

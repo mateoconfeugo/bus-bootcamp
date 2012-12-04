@@ -12,29 +12,6 @@ requires 'send';
 #requires 'i2c_bulk_transfer';
 
 # METHODS
-# Configuration Methods
-sub enter_i2c { 
-    my ($self, $args) = @_;
-    my $result_code = $self->send({message=>"\x02", delay=>.1});
-    $result_code  eq 'I2C1' ? 	return 1 : return 0; 
-}
-
-sub i2c_cfg_pins {
-    my ($self, $args) = @_;
-    "\x01" eq  $self->send({message=>"\x4c", delay=>.1}) ? return 1 : return 0; 
-}
-
-sub i2c_set_speed {
-    my ($self, $args) = @_;
-    my $speed = $args->{speed} || '50Khz';
-    my $speed_map = {
-	'5Khz' => "\x60",
-	'50Khz' => "\x61",
-	'100Khz' => "\x62",
-	'400Khz' => "\x63"
-    };
-    "\x01" eq $self->send({message=>$speed_map->{$speed}, delay=>.1})  ? return 1 : return 0; 
-}
 
 # Control Methods
 sub i2c_send_start_bit {  $_[0]->send({message=>"\x02"}) }

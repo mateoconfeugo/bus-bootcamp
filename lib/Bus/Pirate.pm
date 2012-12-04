@@ -1,5 +1,4 @@
 package Bus::Pirate;
-
 # DEPENDENCIES
 use Moose;
 use Moose::Util::TypeConstraints;
@@ -7,12 +6,12 @@ use Try::Tiny;
 use Bus::Exception;
 
 # ROLES
-with qw(Throwable);              # throw method
-with qw(Bus::Time::Util);              # pause method
-with qw(Bus::Serial);            # serial_port attribute
-with qw(Bus::Debug);             # debug method
-with qw(Bus::Exception::Engine); # handle_exception method
-with qw(Bus::I2C);               # i2c related functions
+with qw(Throwable);              
+with qw(Bus::Time::Util);        
+with qw(Bus::Serial);            
+with qw(Bus::Debug);             
+with qw(Bus::Exception::Engine); 
+with qw(Bus::I2C);               
 with qw(Bus::Meta::Util);
 with qw(Bus::Math);
 
@@ -142,6 +141,37 @@ sub i2c_bulk_transfer {
   return $data;
 }
 
+# I2C Configuration Methods
+
+sub setup_i2c {    
+    my ($self, $args) = $args;
+    try { 
+	$success = $self->enter_i2c();
+	$success = $self->i2c_cfg_pins();
+	$success = $self->i2c_set_speed();
+    } catch { 
+	$self->throw({exception=>'BMP085', error=>$_, message=>'unable to configure/setup bmp085 with the Bus Pirate'});
+    }
+    return $self
+}
+
+sub enter_i2c { 
+    $_[0]->send({message=>pack('C*',0x02), delay=>.1}) eq 'I2C1' ? return 1 : return 0; 
+}
+
+sub i2c_cfg_pins { 
+    $_[0]->send({message=>pack('C*', 0x4c), delay=>.1}) eq $result_code ? return 1 : return 0; 
+}
+
+sub i2c_set_speed {
+    my ($self, $args) = @_;
+    my $speed = $args->{speed} || '50Khz';
+    my $speed_map = {'5Khz' => 0x60,'50Khz' => 0x61,'100Khz' => 0x62,'400Khz' => 0x63};
+    my $result_code = $self->send({message=>pack('C*',$speed_map->{$speed}), delay=>.1})  
+    "\x01" eq $result_code ? return 1 : return 0; 
+}
+
+
 # METHOD MODIFIERS - Arguement validation and exception handling
 
 =pod
@@ -228,6 +258,36 @@ sub _build_modes {
 	  'binary_raw_wire' => ['\x05', 'RAW1'],
 	 };
 }
+
+around 'enter_i2c' => sub {
+  my($method, $self, $args) = @_;
+  my $success = try { 
+    $self->$method($args); 
+  } catch {
+      $self->throw({exception=>'BMP085', error=>$args, message=>'unable to enter i2c mode with the bus pirate'});
+  };
+  $success ? return $self : $self->throw({error=>$_});
+};
+
+around 'i2c_cfg_pins' => sub {
+  my($method, $self, $args) = @_;
+  my $success = try { 
+    $self->$method($args); 
+  } catch {
+      $self->throw({message=>'unable to configure pins for i2c mode', exception=>'BusPirate', error=>$_ }
+  };
+  $success ? return $self : $self->throw({error=>$_});
+};
+
+around 'i2c_set_speed' => sub {
+  my($method, $self, $args) = @_;
+  my $success = try { 
+    $self->$method($args); 
+  } catch {
+      $self->throw({message=>'unable to configure bus speed for i2c mode', exception=>'BusPirate', error=>$_})
+  };
+  $success ? return $self : $self->throw({error=>$_});
+};
 
 # MODULINO FUNCTION - actualize the synopsis! - Be your own component test
 sub run {
