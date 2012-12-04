@@ -32,7 +32,7 @@ use constant POWER => "\x40";
 has io_mode => (is=>'rw', isa=> enum([qw(binary user)]) );
 has bus_mode => (is=>'rw', isa=> enum([qw(i2c spi uart 1wire)]) );
 has modes => (is=>'ro', isa=>'HashRef', lazy_build=>1);
-has config => (is=>'ro', isa=>'HashRef', requires=>1);
+has config => (is=>'rw', isa=>'HashRef', requires=>1);
 
 # CONSTRUCTOR 
 sub BUILD {
@@ -73,15 +73,15 @@ sub i2c_bulk_transfer {
 }
 
 sub setup_i2c {    
-    my ($self, $args) = $args;
+    my ($self, $args) = @_;
     try { 
-	$success = $self->enter_i2c();
-	$success = $self->i2c_cfg_pins();
-	$success = $self->i2c_set_speed();
+	$self->enter_i2c();
+	$self->i2c_cfg_pins();
+	$self->i2c_set_speed();
     } catch { 
 	$self->throw({exception=>'BMP085', error=>$_, message=>'unable to configure/setup bmp085 with the Bus Pirate'});
     }
-    return $self
+    return $self;
 }
 
 # METHODS
@@ -155,20 +155,19 @@ sub enter_i2c {
 }
 
 sub i2c_cfg_pins { 
-    $_[0]->send({message=>pack('C*', 0x4c), delay=>.1}) eq $result_code ? return 1 : return 0; 
+    $_[0]->send({message=>pack('C*', 0x4c), delay=>.1}) eq "\x01" ? return 1 : return 0; 
 }
 
 sub i2c_set_speed {
     my ($self, $args) = @_;
     my $speed = $args->{speed} || '50Khz';
     my $speed_map = {'5Khz' => 0x60,'50Khz' => 0x61,'100Khz' => 0x62,'400Khz' => 0x63};
-    my $result_code = $self->send({message=>pack('C*',$speed_map->{$speed}), delay=>.1})  
+    my $result_code = $self->send({message=>pack('C*',$speed_map->{$speed}), delay=>.1});  
     "\x01" eq $result_code ? return 1 : return 0; 
 }
 
 # METHOD MODIFIERS - Arguement validation and exception handling
-around 'i2c_send_start_bit, i2c_send_stop_bit i2c_send_ack, i2c_send_nack, i2c_bulk_transfer,
-        i2c_set_speed, i2c_cfg_pins, enter_i2c, enter_binary_mode, exit_binary_mode' => sub { 
+around [qw(i2c_bulk_transfer i2c_set_speed i2c_cfg_pins enter_i2c enter_binary_mode exit_binary_mode)] => sub { 
 	    my ($method, $self, $args) = @_;
 	    my $success;
 	    try {
@@ -177,7 +176,7 @@ around 'i2c_send_start_bit, i2c_send_stop_bit i2c_send_ack, i2c_send_nack, i2c_b
 		    return 1 :
 		    $self->throw({exception=>'BusPirate', message=>"method: $method returned a error code: $success"});
 	    } catch {
-		$self->throw({exception=>'BMP085', error=$_, message=>'Device malfunction'});
+		$self->throw({exception=>'BMP085', error=>$_, message=>'Device malfunction'});
 	    };
 	    return $self;
 		

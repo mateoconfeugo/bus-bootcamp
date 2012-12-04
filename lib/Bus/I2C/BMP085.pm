@@ -5,7 +5,6 @@ use Moose;
 use Log::Log4perl qw(:easy);
 use Moose::Util qw(apply_all_roles);
 use Try::Tiny;
-use Bus::Pirate;
  
 # ROLES - more in constructor
 with qw(Throwable);          
@@ -63,6 +62,7 @@ has MC => (is=>'rw', isa=>'Int', lazy_build=>1);
 has MD => (is=>'rw', isa=>'Int', lazy_build=>1);
 has config => (is=>'rw', isa=>'HashRef');
 
+
 # CONSTRUCTOR
 sub BUILD { 
     my ($self, $args) = @_;
@@ -76,7 +76,7 @@ sub BUILD {
 	$self->throw({error=>$e, message=>'Generic BMP085 Exception'});
     };
     # hookup driver and install roles that use it.
-    $self = $self->connect_interface_to_implementation
+    $self = $self->connect_interface_to_implementation;
     apply_all_roles($self, 'Bus::I2C'); 
     # Configure the hardware
     try {
@@ -99,7 +99,7 @@ sub connect_interface_to_implementation {
 # DOMAIN METHODS
 sub calculate_temperature {
   my ($self) = @_;
-  my $ac6 = $self->AC6; my $ac5 = $self->AC5;  my $md = $self->MD; my $mc = $self->MC;
+  my $ac6 = $self->AC6; my $ac5 = $self->AC5;  my $md = $self->MD; # my $mc = $self->MC;
 #  my $ut = 27590; #  my $ac5 = 25188; #  my $ac6 = 19172;  my $md = 2176;
 # TODO: fix this determine why lsb is not getting correct value some of the time
   my $mc =  -11044; 

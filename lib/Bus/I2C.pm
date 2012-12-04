@@ -22,6 +22,20 @@ sub i2c_send_ack {        $_[0]->send({message=>"\x06"}) }
 sub i2c_send_nack {       $_[0]->send({message=>"\x07"}) }
 sub i2c_start_sniffer {   $_[0]->send({message=>"\x0F"}) }
 
+around [qw(i2c_send_start_bit i2c_send_stop_bit i2c_send_ack i2c_send_nack i2c_read_byte)] => sub {
+    my ($method, $self, $args) = @_;
+    my $success;
+    try {
+	$success = $self->$method->($args);
+	$self->serial2hex($success) == 0x01 ? 
+	    return 1 :
+	    $self->throw({exception=>'BMP085', message=>"method: $method returned a error code: $success"});
+    } catch {
+		$self->throw({exception=>'BMP085', error=>$_, message=>'Device malfunction'});
+    };
+    return $self;
+};
+
 # Byte Level Data Setting and gettings methods
 
 
