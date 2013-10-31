@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- The Time Machine GitHub pages theme was designed and developed by Jon Rohan, on Feb 7, 2012. -->
+<!-- Follow him for fun. http://twitter.com/jonrohan. Tail his code on http://github.com/jonrohan -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+
+  <link rel="stylesheet" href="stylesheets/stylesheet.css" media="screen"/>
+  <link rel="stylesheet" href="stylesheets/pygment_trac.css"/>
+  <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+  <script type="text/javascript" src="javascripts/script.js"></script>
+
+  <title>Bus-bootcamp</title>
+  <meta name="description" content="bus_bootcamp">
+
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+
+</head>
+
+<body>
+
+  <div class="wrapper">
+    <header>
+      <h1 class="title">Bus-bootcamp</h1>
+    </header>
+    <div id="container">
+      <p class="tagline">bus_bootcamp</p>
+      <div id="main" role="main">
+        <div class="download-bar">
+        <div class="inner">
+          <a href="https://github.com/mateoconfeugo/bus-bootcamp/tarball/master" class="download-button tar"><span>Download</span></a>
+          <a href="https://github.com/mateoconfeugo/bus-bootcamp/zipball/master" class="download-button zip"><span>Download</span></a>
+          <a href="https://github.com/mateoconfeugo/bus-bootcamp" class="code">View Bus-bootcamp on GitHub</a>
+        </div>
+        <span class="blc"></span><span class="trc"></span>
+        </div>
+        <article class="markdown-body">
+          <h1>
+<a name="bus-bootcamp" class="anchor" href="#bus-bootcamp"><span class="octicon octicon-link"></span></a>bus-bootcamp</h1>
+
+<p>Hacking on the SysFS with Perl in an Embedded Linux environment</p>
+
+<p>bus_bootcamp</p>
+
+<p>This module contains contains packages of Moose types that help a perl programmer to develop drivers to talk to different hardware components in an embedded linux environment via GPIO (General Purpose Input Output) lines.</p>
+
+<p>This is accomplished by gaining programmatic access to various buses (SPI, I2C, UART, 1WIRE, usb,).  Send and recieve data to these buses using a unified interface.  Further provide a framework for adding new buses.  Like the Bus Pirate, this is primary a tool used for design and diagnostic purposes.</p>
+
+<p>GPIO allows access to hardware through the unix file abstraction.</p>
+
+<p>There are of course some rules but they are reasonable enough assumptions to make in the embedded Linux domain.</p>
+
+<p>1) The Linux Kernel has GPIO enabled</p>
+
+<p>2) You have a Bus Pirate board</p>
+
+<p>That wasn't hard was it.</p>
+
+<p>So the progression of using your hardware with perl goes something like this</p>
+
+<p>minicom &lt;-&gt; bus_pirate &lt;-&gt; some hardware</p>
+
+<p>perl app &lt;-&gt; Bus::Pirate &lt;-&gt; some hardware</p>
+
+<p>perl app &lt;-&gt; GPIO &lt;-&gt; Bus::Pirate test hardware</p>
+
+<p>perl app &lt;-&gt; GPIO &lt;-&gt; some hardware</p>
+
+<p>Example Scenario: Suppose you have a intergrated circuit (IC) component that gives you the temperature and pressure via an I2C bus.</p>
+
+<p>1) Wire up the circuit and connect the bus pirate to it.</p>
+
+<p>2) Connect to the bus pirate via a terminal emulator such as minicom and discover how the device works</p>
+
+<p>3) Using the knowlegdge gained in step 2 write a perl program that uses the Bus::Pirate module to access the IC via the I2C bus and obtain the temperature.</p>
+
+<p>4) Install the correct Bus GPIO kernel module in this case the GPIO kernel module that allows one to access I2C device via GPIO.</p>
+
+<p>5) Switch from using the Bus::Pirate to GPIO to talk to the device</p>
+
+<p>6) Have a beer!</p>
+
+<p>Save step 6 this is what the initial example and tests are centered around.</p>
+        </article>
+      </div>
+    </div>
+    <footer>
+      <div class="owner">
+      <p><a href="https://github.com/mateoconfeugo" class="avatar"><img src="https://2.gravatar.com/avatar/a7d2835274a646d5ad928e50eb8cc816?d=https%3A%2F%2Fidenticons.github.com%2Fd5dd6d18c1290b53070495a62a8670ec.png&amp;r=x&amp;s=60" width="48" height="48"/></a> <a href="https://github.com/mateoconfeugo">mateoconfeugo</a> maintains <a href="https://github.com/mateoconfeugo/bus-bootcamp">Bus-bootcamp</a></p>
+
+
+      </div>
+      <div class="creds">
+        <small>This page generated using <a href="https://pages.github.com/">GitHub Pages</a><br/>theme by <a href="https://twitter.com/jonrohan/">Jon Rohan</a></small>
+      </div>
+    </footer>
+  </div>
+  <div class="current-section">
+    <a href="#top">Scroll to top</a>
+    <a href="https://github.com/mateoconfeugo/bus-bootcamp/tarball/master" class="tar">tar</a><a href="https://github.com/mateoconfeugo/bus-bootcamp/zipball/master" class="zip">zip</a><a href="" class="code">source code</a>
+    <p class="name"></p>
+  </div>
+
+  
+</body>
+</html>
